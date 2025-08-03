@@ -1,84 +1,79 @@
 from flask import Flask, request, jsonify
 import requests
+import os
+from dotenv import load_dotenv
+import logging
+
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Headers and cookies from the curl command
+# Get config from environment
+API_URL = os.getenv('API_URL')
+HOST = os.getenv('HOST', '0.0.0.0')
+PORT = int(os.getenv('PORT', 5000))
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+
+# Build headers from environment
 HEADERS = {
     'accept': '*/*',
-    'accept-language': 'en-US,en;q=0.9,de-US;q=0.8,de;q=0.7,fa-US;q=0.6,fa;q=0.5,ja-US;q=0.4,ja;q=0.3,cs-CZ;q=0.2,cs;q=0.1',
+    'accept-language': 'en-US,en;q=0.9',
     'cache-control': 'no-cache',
     'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
     'origin': 'https://shahab.tbtb.ir',
-    'pragma': 'no-cache',
-    'priority': 'u=1, i',
     'referer': 'https://shahab.tbtb.ir/public/map/index',
-    'requestverificationtoken': 'CfDJ8E8xybVDEI1CuE4vFTSKLBYfcYWMJjtMtuc5EQoZk-XM2rszznB6wTFUSKI5vS2HgFlWVqHs4nPS13H_JzqjM6uV0B2GWEEcuKo21LvC9Nf8pJ6oeVlYMVhuAN4kktVCcZ1M3Vt32_GNpn-l-aeQiFg',
-    'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-    'sec-ch-ua-mobile': '?1',
-    'sec-ch-ua-platform': '"Android"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36',
+    'requestverificationtoken': os.getenv('VERIFICATION_TOKEN'),
+    'user-agent': os.getenv('USER_AGENT'),
     'x-requested-with': 'XMLHttpRequest'
 }
 
+# Build cookies from environment
 COOKIES = {
-    'arcaptcha': '3ec07b4b91309b3b5195d65689482da5',
-    'SessionCookie': 'CfDJ8E8xybVDEI1CuE4vFTSKLBaGq7Ukje3LxYbJrWoBk86Vk0%2B1spmTdZwlRyF%2FlsjBfXLQMrtHF5jWHI12fTDCdMZiWqUHRMdlhc48%2FtDio9rUYyG%2FeMX%2B4VG6MEZrU5HSP47rg0xHUEdDgr78Rttk8W6Qwy3Q1z6XNKD9mSaWJSIK',
-    'PrawAntiForgery': 'CfDJ8E8xybVDEI1CuE4vFTSKLBYpJ_zQo1VbEEj6kFBG6KytyiaaHyLa0k1oJ_leptVU4JTwISi3rMEBaasXA54uiegn8zzF7GxIg3BFUH-JRaekp6JsGOp8vvIdq7ItUeUeeOp4qN9hT8cW9BTlO0Te41s; SessionCookie=CfDJ8E8xybVDEI1CuE4vFTSKLBaGq7Ukje3LxYbJrWoBk86Vk0%2B1spmTdZwlRyF%2FlsjBfXLQMrtHF5jWHI12fTDCdMZiWqUHRMdlhc48%2FtDio9rUYyG%2FeMX%2B4VG6MEZrU5HSP47rg0xHUEdDgr78Rttk8W6Qwy3Q1z6XNKD9mSaWJSIK'
+    'arcaptcha': os.getenv('ARCAPTCHA_COOKIE'),
+    'SessionCookie': os.getenv('SESSION_COOKIE'),
+    'PrawAntiForgery': os.getenv('ANTIFORGERY_COOKIE')
 }
 
-API_URL = 'https://shahab.tbtb.ir/public/map/v2/GetOutagesListByLatAndLong'
-
-@app.route('/outages', methods=['GET'])
+@app.route('/outages')
 def get_outages():
-    """
-    Get power outages by latitude and longitude
+    lat = request.args.get('lat')
+    lon = request.args.get('lon')
     
-    Query parameters:
-    - lat: latitude (required)
-    - lon: longitude (required)
+    if not lat or not lon:
+        return jsonify({'error': 'Need lat and lon parameters'}), 400
     
-    Example: /outages?lat=35.75878319596661&lon=51.36180495377631
-    """
     try:
-        # Get latitude and longitude from query parameters
-        lat = request.args.get('lat')
-        lon = request.args.get('lon')
+        float(lat)
+        float(lon)
+    except ValueError:
+        return jsonify({'error': 'lat and lon must be numbers'}), 400
+    
+    data = f'Latitude={lat}&Longitude={lon}'
+    
+    try:
+        logger.info(f"Making API request for lat={lat}, lon={lon}")
         
-        if not lat or not lon:
-            return jsonify({
-                'error': 'Missing required parameters',
-                'message': 'Both lat and lon parameters are required'
-            }), 400
-        
-        # Validate lat/lon are numeric
-        try:
-            float(lat)
-            float(lon)
-        except ValueError:
-            return jsonify({
-                'error': 'Invalid parameters',
-                'message': 'lat and lon must be valid numbers'
-            }), 400
-        
-        # Prepare the data payload
-        data = f'Latitude={lat}&Longitude={lon}'
-        
-        # Make the API request
         response = requests.post(
             API_URL,
             headers=HEADERS,
             cookies=COOKIES,
-            data=data
+            data=data,
+            timeout=30
         )
         
-        # Return the raw response
         if response.status_code == 200:
+            logger.info("API request successful")
             return response.json()
         else:
+            logger.error(f"API request failed: {response.status_code}")
             return jsonify({
                 'error': 'API request failed',
                 'status_code': response.status_code,
@@ -86,33 +81,21 @@ def get_outages():
             }), response.status_code
             
     except requests.exceptions.RequestException as e:
-        return jsonify({
-            'error': 'Network error',
-            'message': str(e)
-        }), 500
-    except Exception as e:
-        return jsonify({
-            'error': 'Server error',
-            'message': str(e)
-        }), 500
+        logger.error(f"Network error: {str(e)}")
+        return jsonify({'error': 'Network error', 'message': str(e)}), 500
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
-    return jsonify({'status': 'healthy'})
+@app.route('/health')
+def health():
+    return jsonify({'status': 'healthy', 'service': 'outage-api'})
 
-@app.route('/', methods=['GET'])
+@app.route('/')
 def home():
-    """Home endpoint with usage instructions"""
     return jsonify({
-        'message': 'Power Outage API Server',
-        'usage': 'GET /outages?lat=<latitude>&lon=<longitude>',
-        'example': '/outages?lat=35.75878319596661&lon=51.36180495377631',
-        'health': 'GET /health'
+        'message': 'Power Outage API',
+        'usage': '/outages?lat=<latitude>&lon=<longitude>',
+        'example': '/outages?lat=35.75878319596661&lon=51.36180495377631'
     })
 
 if __name__ == '__main__':
-    print("Starting Power Outage API Server...")
-    print("Usage: GET /outages?lat=<latitude>&lon=<longitude>")
-    print("Example: http://localhost:5000/outages?lat=35.75878319596661&lon=51.36180495377631")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    logger.info(f"Starting server on {HOST}:{PORT}")
+    app.run(host=HOST, port=PORT, debug=DEBUG)
