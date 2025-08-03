@@ -69,9 +69,20 @@ def get_outages():
             timeout=30
         )
         
+        logger.info(f"Response status: {response.status_code}")
+        logger.info(f"Response headers: {dict(response.headers)}")
+        logger.info(f"Response content: {response.text[:500]}")  # First 500 chars
+        
         if response.status_code == 200:
-            logger.info("API request successful")
-            return response.json()
+            try:
+                return response.json()
+            except ValueError as e:
+                logger.error(f"JSON decode error: {str(e)}")
+                return jsonify({
+                    'error': 'Invalid JSON response',
+                    'raw_response': response.text,
+                    'content_type': response.headers.get('content-type')
+                }), 500
         else:
             logger.error(f"API request failed: {response.status_code}")
             return jsonify({
